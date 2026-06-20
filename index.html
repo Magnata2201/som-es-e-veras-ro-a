@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AgroGestão Mobile Profissional</title>
+    
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#059669">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/1892/1892747.png">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { -webkit-tap-highlight-color: transparent; }
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+        .modal-enter { animation: slideUp 0.3s ease-out forwards; }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #059669; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        #offline-banner { display: none; }
+        body.offline #offline-banner { display: block; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans antialiased h-screen flex flex-col overflow-hidden">
+
+    <div id="offline-banner" class="bg-red-500 text-white text-xs text-center py-1 font-bold">
+        <i class="fas fa-wifi-slash mr-1"></i> Você está offline. O aplicativo está funcionando com dados salvos.
+    </div>
+
+    <header class="bg-emerald-600 text-white shadow-md p-4 flex items-center justify-between z-10 shrink-0">
+        <div class="flex items-center gap-3">
+            <button id="btn-back" class="hidden text-xl p-1" onclick="app.goBack()"><i class="fas fa-arrow-left"></i></button>
+            <h1 id="page-title" class="text-lg font-bold">Painel de Controle</h1>
+        </div>
+        <i class="fas fa-leaf text-xl"></i>
+    </header>
+
+    <main id="app-content" class="flex-1 overflow-y-auto hide-scroll p-4 pb-24 relative">
+        </main>
+
+    <nav class="bg-white border-t border-gray-200 fixed bottom-0 w-full flex justify-around p-3 pb-safe z-10 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] shrink-0">
+        <button onclick="router.navigate('home')" class="nav-btn flex flex-col items-center text-emerald-600 w-16" data-route="home">
+            <i class="fas fa-home text-xl mb-1"></i>
+            <span class="text-[10px] font-medium">Início</span>
+        </button>
+        <button onclick="router.navigate('finance')" class="nav-btn flex flex-col items-center text-gray-400 hover:text-emerald-600 w-16" data-route="finance">
+            <i class="fas fa-wallet text-xl mb-1"></i>
+            <span class="text-[10px] font-medium">Finanças</span>
+        </button>
+        <button onclick="router.navigate('farm')" class="nav-btn flex flex-col items-center text-gray-400 hover:text-emerald-600 w-16" data-route="farm">
+            <i class="fas fa-tractor text-xl mb-1"></i>
+            <span class="text-[10px] font-medium">Produção</span>
+        </button>
+    </nav>
+
+    <button id="fab-add" onclick="ui.openModal()" class="hidden fixed bottom-20 right-6 bg-emerald-600 text-white w-14 h-14 rounded-full shadow-lg items-center justify-center text-2xl z-20 hover:bg-emerald-700 active:scale-95 transition-transform">
+        <i class="fas fa-plus"></i>
+    </button>
+
+    <div id="form-modal" class="hidden fixed inset-0 bg-black/50 z-30 flex items-end sm:items-center justify-center">
+        <div class="bg-white w-full sm:w-96 rounded-t-2xl sm:rounded-xl p-6 modal-enter max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h2 id="modal-title" class="text-xl font-bold text-gray-800">Novo Registro</h2>
+                <button onclick="ui.closeModal()" class="text-gray-500 text-2xl leading-none">&times;</button>
+            </div>
+            <form id="dynamic-form" onsubmit="app.handleFormSubmit(event)">
+                <div id="form-fields" class="space-y-4"></div>
+                <button type="submit" id="btn-submit" class="w-full bg-emerald-600 text-white font-bold py-3 rounded-lg mt-6 shadow-md active:bg-emerald-700 flex justify-center items-center gap-2">
+                    Salvar Dados
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW Error:', err));
+            });
+        }
+        window.addEventListener('online', () => document.body.classList.remove('offline'));
+        window.addEventListener('offline', () => document.body.classList.add('offline'));
+        if (!navigator.onLine) document.body.classList.add('offline');
+    </script>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getDatabase, ref, get, push, remove, child } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCsJgxmOxRjg3B9U28_Zp4R-zYgPrcYjSQ",
+            authDomain: "simoes-e-veras-contas.firebaseapp.com",
+            databaseURL: "https://simoes-e-veras-contas-default-rtdb.firebaseio.com",
+            projectId: "simoes-e-veras-contas",
+            storageBucket: "simoes-e-veras-contas.firebasestorage.app",
+            messagingSenderId: "612748909929",
+            appId: "1:612748909929:web:08a1e8b19c6b6a6d32b1f8",
+            measurementId: "G-SXK8GP2VCE"
+        };
+
+        const appFirebase = initializeApp(firebaseConfig);
+        const database = getDatabase(appFirebase);
+
+        const db = {
+            get: async (table) => {
+                if (!navigator.onLine) {
+                    const localData = localStorage.getItem(`offline_${table}`);
+                    return localData ? JSON.parse(localData) : [];
+                }
+                try {
+                    const dbRef = ref(database);
+                    const snapshot = await get(child(dbRef, table));
+                    if (snapshot.exists()) {
+                        const data = Object.entries(snapshot.val()).map(([id, val]) => ({ id, ...val }));
+                        localStorage.setItem(`offline_${table}`, JSON.stringify(data));
+                        return data;
+                    }
+                    return [];
+                } catch (error) {
+                    console.error(error);
+                    return [];
+                }
+            },
+            insert: async (table, record) => {
+                if (!navigator.onLine) {
+                    alert("Sem conexão para salvar no Firebase.");
+                    throw new Error("Offline");
+                }
+                await push(ref(database, table), { createdAt: new Date().toISOString(), ...record });
+            },
+            delete: async (table, id) => {
+                if (!navigator.onLine) {
+                    alert("Sem conexão para deletar.");
+                    return;
+                }
+                await remove(ref(database, `${table}/${id}`));
+            }
+        };
+
+        const dateUtils = {
+            getLocalDateStrings: () => {
+                const now = new Date();
+                const offset = now.getTimezoneOffset() * 60000;
+                const today = new Date(now.getTime() - offset).toISOString().split('T')[0];
+                const tomorrowObj = new Date(now.getTime() - offset + (24 * 60 * 60 * 1000));
+                const tomorrow = tomorrowObj.toISOString().split('T')[0];
+                return { today, tomorrow };
+            }
+        };
+
+        const config = {
+            modules: {
+                'contas_pagar': { title: 'Contas a Pagar', icon: 'fa-file-invoice-dollar', color: 'text-red-500', type: 'finance' },
+                'compras': { title: 'Contas de Compras', icon: 'fa-shopping-cart', color: 'text-orange-500', type: 'finance' },
+                'pagamento_func': { title: 'Pagamento Funcionários', icon: 'fa-users', color: 'text-blue-500', type: 'finance' },
+                'vendas': { title: 'Controle de Vendas', icon: 'fa-hand-holding-dollar', color: 'text-green-500', type: 'finance' },
+                'adubacao': { title: 'Datas de Adubação', icon: 'fa-seedling', color: 'text-emerald-500', type: 'farm' },
+                'cargas': { title: 'Cargas de Cocos', icon: 'fa-truck-loading', color: 'text-amber-600', type: 'farm' }
+            },
+            getFields: (module) => {
+                const baseFields = [
+                    { name: 'data', label: 'Data de Lançamento', type: 'date', required: true },
+                    { name: 'descricao', label: module === 'pagamento_func' ? 'Nome do Funcionário' : 'Descrição/Observação', type: 'text', required: true }
+                ];
+                if (module === 'contas_pagar' || module === 'pagamento_func') {
+                    baseFields.push({ name: 'data_vencimento', label: 'Data de Vencimento', type: 'date', required: true });
+                }
+                if (config.modules[module].type === 'finance') {
+                    baseFields.push({ name: 'valor', label: 'Valor (R$)', type: 'number', step: '0.01', required: true });
+                }
+                if (module === 'cargas') {
+                    baseFields.push({ name: 'quantidade', label: 'Quantidade de Cocos', type: 'number', required: true });
+                }
+                return baseFields;
+            }
+        };
+
+        const state = { currentRoute: 'home', currentModule: null };
+
+        const ui = {
+            formatCurrency: (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0),
+            formatDate: (dateString) => {
+                if (!dateString) return '';
+                const [y, m, d] = dateString.split('-');
+                return `${d}/${m}/${y}`;
+            },
+            showLoading: () => {
+                document.getElementById('app-content').innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-full text-emerald-600 mt-20">
+                        <div class="loader mb-4"></div>
+                        <p class="text-sm font-semibold">Carregando dados...</p>
+                    </div>`;
+            },
+            getNotificationBanner: (contas, pagamentos) => {
+                const { today, tomorrow } = dateUtils.getLocalDateStrings();
+                
+                const contasHoje = contas.filter(c => c.data_vencimento === today);
+                const contasAmanha = contas.filter(c => c.data_vencimento === tomorrow);
+                
+                const funcHoje = pagamentos.filter(p => p.data_vencimento === today);
+                const funcAmanha = pagamentos.filter(p => p.data_vencimento === tomorrow);
+
+                const totalHoje = contasHoje.length + funcHoje.length;
+                const totalAmanha = contasAmanha.length + funcAmanha.length;
+
+                let htmlBanner = '';
+
+                if (totalHoje > 0) {
+                    const itensHoje = [
+                        ...contasHoje.map(c => `<span class="font-bold">[Conta]</span> ${c.descricao} (${ui.formatCurrency(c.valor)})`), 
+                        ...funcHoje.map(p => `<span class="font-bold">[Func]</span> ${p.descricao} (${ui.formatCurrency(p.valor)})`)
+                    ];
+                    htmlBanner += `
+                        <div class="bg-red-600 text-white p-4 rounded-xl mb-3 flex flex-col gap-2 shadow-md">
+                            <div class="flex items-center gap-2">
+                                <i class="fas fa-exclamation-circle text-lg animate-pulse"></i>
+                                <p class="text-sm font-bold">Vencendo Hoje: ${totalHoje} compromisso(s)</p>
+                            </div>
+                            <ul class="text-xs opacity-90 pl-6 list-disc space-y-1 max-h-24 overflow-y-auto hide-scroll">
+                                ${itensHoje.map(item => `<li>${item}</li>`).join('')}
+                            </ul>
+                        </div>`;
+                }
+
+                if (totalAmanha > 0) {
+                    const itensAmanha = [
+                        ...contasAmanha.map(c => `<span class="font-bold">[Conta]</span> ${c.descricao} (${ui.formatCurrency(c.valor)})`), 
+                        ...funcAmanha.map(p => `<span class="font-bold">[Func]</span> ${p.descricao} (${ui.formatCurrency(p.valor)})`)
+                    ];
+                    htmlBanner += `
+                        <div class="bg-amber-500 text-white p-4 rounded-xl mb-3 flex flex-col gap-2 shadow-md">
+                            <div class="flex items-center gap-2">
+                                <i class="fas fa-clock text-lg"></i>
+                                <p class="text-sm font-bold">Vencendo Amanhã: ${totalAmanha} compromisso(s)</p>
+                            </div>
+                            <ul class="text-xs opacity-90 pl-6 list-disc space-y-1 max-h-24 overflow-y-auto hide-scroll">
+                                ${itensAmanha.map(item => `<li>${item}</li>`).join('')}
+                            </ul>
+                        </div>`;
+                }
+                return htmlBanner;
+            },
+            updateNav: () => {
+                document.querySelectorAll('.nav-btn').forEach(tab => {
+                    tab.classList.remove('text-emerald-600');
+                    tab.classList.add('text-gray-400');
+                    if (tab.dataset.route === state.currentRoute) {
+                        tab.classList.remove('text-gray-400');
+                        tab.classList.add('text-emerald-600');
+                    }
+                });
+
+                document.getElementById('btn-back').style.display = state.currentModule ? 'block' : 'none';
+                document.getElementById('fab-add').style.display = state.currentModule ? 'flex' : 'none';
+                
+                if (state.currentModule) {
+                    document.getElementById('page-title').innerText = config.modules[state.currentModule].title;
+                } else {
+                    const titles = { 'home': 'Painel Geral', 'finance': 'Módulo Financeiro', 'farm': 'Módulo de Production' };
+                    document.getElementById('page-title').innerText = titles[state.currentRoute] || 'AgroGestão';
+                }
+            },
+            render: async () => {
+                ui.updateNav();
+                const content = document.getElementById('app-content');
+                
+                if (state.currentModule) {
+                    ui.showLoading();
+                    const data = await db.get(state.currentModule);
+                    ui.renderList(state.currentModule, data, content);
+                } else if (state.currentRoute === 'home') {
+                    ui.showLoading();
+                    await ui.renderDashboard(content);
+                } else {
+                    ui.renderModuleGrid(state.currentRoute, content);
+                }
+            },
+            renderDashboard: async (container) => {
+                const [vendas, contas, compras, func, cargas] = await Promise.all([
+                    db.get('vendas'), db.get('contas_pagar'), db.get('compras'),
+                    db.get('pagamento_func'), db.get('cargas')
+                ]);
+
+                const totalVendas = vendas.reduce((acc, val) => acc + Number(val.valor), 0);
+                const totalDespesas = [...contas, ...compras, ...func].reduce((acc, item) => acc + Number(item.valor), 0);
+                const totalCocos = cargas.reduce((acc, val) => acc + Number(val.quantidade), 0);
+
+                container.innerHTML = `
+                    ${ui.getNotificationBanner(contas, func)}
+                    <div class="grid grid-cols-2 gap-4 mb-6">
+                        <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-green-500">
+                            <p class="text-xs text-gray-500 mb-1">Total de Vendas</p>
+                            <p class="text-lg font-bold text-gray-800">${ui.formatCurrency(totalVendas)}</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-red-500">
+                            <p class="text-xs text-gray-500 mb-1">Total Saídas</p>
+                            <p class="text-lg font-bold text-gray-800">${ui.formatCurrency(totalDespesas)}</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-amber-500 col-span-2">
+                            <p class="text-xs text-gray-500 mb-1">Total Produzido (Cocos)</p>
+                            <p class="text-2xl font-bold text-gray-800">${totalCocos} <span class="text-sm font-normal text-gray-500">unidades</span></p>
+                        </div>
+                    </div>
+                    <h3 class="font-bold text-gray-700 mb-4">Acesso Rápido</h3>
+                    <div class="grid grid-cols-2 gap-3">
+                        ${Object.entries(config.modules).map(([key, mod]) => `
+                            <button onclick="router.navigate('${mod.type}', '${key}')" class="bg-white p-4 rounded-xl shadow-sm flex flex-col items-center justify-center gap-2 active:scale-95 transition-transform border border-gray-100">
+                                <i class="fas ${mod.icon} text-2xl ${mod.color}"></i>
+                                <span class="text-xs font-semibold text-center text-gray-700">${mod.title}</span>
+                            </button>
+                        `).join('')}
+                    </div>`;
+            },
+            renderModuleGrid: (type, container) => {
+                const modules = Object.entries(config.modules).filter(([k, v]) => v.type === type);
+                container.innerHTML = `
+                    <div class="grid grid-cols-1 gap-3">
+                        ${modules.map(([key, mod]) => `
+                            <div onclick="router.navigate('${type}', '${key}')" class="bg-white p-4 rounded-xl shadow-sm flex items-center justify-between active:scale-95 transition-transform border border-gray-100 cursor-pointer">
+                                <div class="flex items-center gap-4">
+                                    <div class="w-12 h-12 rounded-full bg-gray-50 flex items-center justify-center"><i class="fas ${mod.icon} text-xl ${mod.color}"></i></div>
+                                    <span class="font-bold text-gray-800">${mod.title}</span>
+                                </div>
+                                <i class="fas fa-chevron-right text-gray-300"></i>
+                            </div>
+                        `).join('')}
+                    </div>`;
+            },
+            renderList: (module, data, container) => {
+                data.sort((a, b) => new Date(b.data) - new Date(a.data));
+                const { today } = dateUtils.getLocalDateStrings();
+
+                if (data.length === 0) {
+                    container.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-gray-400 mt-20"><i class="fas fa-folder-open text-4xl mb-3"></i><p>Nenhum registro encontrado.</p></div>`;
+                    return;
+                }
+
+                container.innerHTML = `<div class="space-y-3">` + data.map(item => {
+                    const temVencimento = module === 'contas_pagar' || module === 'pagamento_func';
+                    const isVencidaOuHoje = temVencimento && item.data_vencimento && (item.data_vencimento <= today);
+                    
+                    const cardStyle = isVencidaOuHoje ? 'bg-red-50 border-red-300' : 'bg-white border-gray-100';
+                    const textStyle = isVencidaOuHoje ? 'text-red-900' : 'text-gray-800';
+
+                    return `
+                        <div class="${cardStyle} p-4 rounded-xl shadow-sm border flex justify-between items-center transition-all">
+                            <div>
+                                <p class="text-[11px] text-gray-500 mb-1"><i class="far fa-calendar-alt mr-1"></i> Lançamento: ${ui.formatDate(item.data)}</p>
+                                <p class="font-bold ${textStyle} capitalize text-sm">${item.descricao}</p>
+                                ${item.data_vencimento ? `<p class="text-xs font-semibold mt-1 ${isVencidaOuHoje ? 'text-red-600 animate-pulse' : 'text-gray-600'}"><i class="fas fa-calendar-check mr-1"></i> Vencimento: ${ui.formatDate(item.data_vencimento)}</p>` : ''}
+                                ${item.quantidade ? `<p class="text-sm text-amber-600 font-semibold mt-1"><i class="fas fa-cubes mr-1"></i> ${item.quantidade} cocos</p>` : ''}
+                            </div>
+                            <div class="flex flex-col items-end gap-2">
+                                ${item.valor ? `<span class="font-bold text-sm ${module === 'contas_pagar' || module === 'pagamento_func' ? 'text-red-600' : (module === 'vendas' ? 'text-green-600' : 'text-gray-700')}">${ui.formatCurrency(item.valor)}</span>` : ''}
+                                <button onclick="app.deleteRecord('${module}', '${item.id}')" class="text-gray-400 hover:text-red-500 p-2"><i class="fas fa-trash text-xs"></i></button>
+                            </div>
+                        </div>`;
+                }).join('') + `</div>`;
+            },
+            openModal: () => {
+                const mod = state.currentModule;
+                document.getElementById('modal-title').innerText = `Novo: ${config.modules[mod].title}`;
+                
+                const formHTML = config.getFields(mod).map(f => `
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">${f.label}</label>
+                        <input type="${f.type}" name="${f.name}" ${f.required ? 'required' : ''} ${f.step ? `step="${f.step}"` : ''}
+                            class="w-full border border-gray-300 rounded-lg p-3 text-gray-800 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
+                    </div>
+                `).join('');
+                
+                document.getElementById('form-fields').innerHTML = formHTML;
+                document.getElementById('form-modal').classList.remove('hidden');
+                
+                const { today } = dateUtils.getLocalDateStrings();
+                document.querySelectorAll('input[type="date"]').forEach(input => input.value = today);
+            },
+            closeModal: () => {
+                document.getElementById('form-modal').classList.add('hidden');
+                document.getElementById('dynamic-form').reset();
+            }
+        };
+
+        const app = {
+            goBack: () => router.navigate(config.modules[state.currentModule].type),
+            handleFormSubmit: async (e) => {
+                document.getElementById('btn-submit').disabled = true;
+                try {
+                    const data = Object.fromEntries(new FormData(e.target).entries());
+                    await db.insert(state.currentModule, data);
+                    ui.closeModal();
+                } catch (error) {
+                    console.error(error);
+                } finally {
+                    document.getElementById('btn-submit').disabled = false;
+                    await ui.render();
+                }
+            },
+            deleteRecord: async (module, id) => {
+                if(confirm('Tem certeza que deseja apagar este registro do Firebase?')) {
+                    ui.showLoading();
+                    await db.delete(module, id);
+                    await ui.render();
+                }
+            }
+        };
+
+        const router = {
+            navigate: async (route, module = null) => {
+                state.currentRoute = route;
+                state.currentModule = module;
+                await ui.render();
+            }
+        };
+
+        window.router = router;
+        window.ui = ui;
+        window.app = app;
+        window.addEventListener('DOMContentLoaded', () => router.navigate('home'));
+    </script>
+</body>
+</html>
