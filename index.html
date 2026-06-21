@@ -14,7 +14,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { -webkit-tap-highlight-color: transparent; }
+        body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
         .hide-scroll::-webkit-scrollbar { display: none; }
         .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
         .modal-enter { animation: slideUp 0.3s ease-out forwards; }
@@ -28,11 +28,11 @@
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans antialiased h-screen flex flex-col overflow-hidden">
 
-    <div id="offline-banner" class="bg-red-500 text-white text-xs text-center py-1 font-bold">
+    <div id="offline-banner" class="bg-red-500 text-white text-xs text-center py-1 font-bold z-50">
         <i class="fas fa-wifi-slash mr-1"></i> Você está offline. O aplicativo está funcionando com dados salvos.
     </div>
 
-    <header class="bg-emerald-600 text-white shadow-md p-4 flex items-center justify-between z-10 shrink-0">
+    <header class="bg-emerald-600 text-white shadow-md p-4 flex items-center justify-between z-20 shrink-0 relative">
         <div class="flex items-center gap-3">
             <button id="btn-back" class="hidden text-xl p-1" onclick="app.goBack()"><i class="fas fa-arrow-left"></i></button>
             <h1 id="page-title" class="text-lg font-bold">Painel de Controle</h1>
@@ -40,10 +40,16 @@
         <i class="fas fa-leaf text-xl"></i>
     </header>
 
-    <main id="app-content" class="flex-1 overflow-y-auto hide-scroll p-4 pb-24 relative">
-        </main>
+    <div id="ptr-indicator" class="fixed top-16 left-0 w-full flex justify-center -translate-y-full transition-transform duration-300 z-10 pointer-events-none">
+        <div class="bg-white rounded-full shadow-lg p-2 w-10 h-10 flex items-center justify-center mt-2 border border-gray-100">
+            <i id="ptr-icon" class="fas fa-arrow-down text-gray-400 text-lg transition-transform"></i>
+        </div>
+    </div>
 
-    <nav class="bg-white border-t border-gray-200 fixed bottom-0 w-full flex justify-around p-3 pb-safe z-10 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] shrink-0">
+    <main id="app-content" class="flex-1 overflow-y-auto hide-scroll p-4 pb-24 relative z-10 overscroll-contain">
+    </main>
+
+    <nav class="bg-white border-t border-gray-200 fixed bottom-0 w-full flex justify-around p-3 pb-safe z-30 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] shrink-0">
         <button onclick="router.navigate('home')" class="nav-btn flex flex-col items-center text-emerald-600 w-16" data-route="home">
             <i class="fas fa-home text-xl mb-1"></i>
             <span class="text-[10px] font-medium">Início</span>
@@ -58,11 +64,11 @@
         </button>
     </nav>
 
-    <button id="fab-add" onclick="ui.openModal()" class="hidden fixed bottom-20 right-6 bg-emerald-600 text-white w-14 h-14 rounded-full shadow-lg items-center justify-center text-2xl z-20 hover:bg-emerald-700 active:scale-95 transition-transform">
+    <button id="fab-add" onclick="ui.openModal()" class="hidden fixed bottom-20 right-6 bg-emerald-600 text-white w-14 h-14 rounded-full shadow-lg items-center justify-center text-2xl z-40 hover:bg-emerald-700 active:scale-95 transition-transform">
         <i class="fas fa-plus"></i>
     </button>
 
-    <div id="form-modal" class="hidden fixed inset-0 bg-black/50 z-30 flex items-end sm:items-center justify-center">
+    <div id="form-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
         <div class="bg-white w-full sm:w-96 rounded-t-2xl sm:rounded-xl p-6 modal-enter max-h-[90vh] overflow-y-auto">
             <div class="flex justify-between items-center mb-4">
                 <h2 id="modal-title" class="text-xl font-bold text-gray-800">Novo Registro</h2>
@@ -90,7 +96,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getDatabase, ref, get, push, remove, child } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+        import { getDatabase, ref, get, push, remove, child, update } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCsJgxmOxRjg3B9U28_Zp4R-zYgPrcYjSQ",
@@ -132,6 +138,13 @@
                     throw new Error("Offline");
                 }
                 await push(ref(database, table), { createdAt: new Date().toISOString(), ...record });
+            },
+            update: async (table, id, data) => {
+                if (!navigator.onLine) {
+                    alert("Sem conexão para atualizar.");
+                    return;
+                }
+                await update(ref(database, `${table}/${id}`), data);
             },
             delete: async (table, id) => {
                 if (!navigator.onLine) {
@@ -180,7 +193,11 @@
             }
         };
 
-        const state = { currentRoute: 'home', currentModule: null };
+        const state = { 
+            currentRoute: 'home', 
+            currentModule: null,
+            cargasMonth: new Date().toISOString().slice(0, 7)
+        };
 
         const ui = {
             formatCurrency: (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0),
@@ -261,7 +278,7 @@
                 if (state.currentModule) {
                     document.getElementById('page-title').innerText = config.modules[state.currentModule].title;
                 } else {
-                    const titles = { 'home': 'Painel Geral', 'finance': 'Módulo Financeiro', 'farm': 'Módulo de Production' };
+                    const titles = { 'home': 'Painel Geral', 'finance': 'Módulo Financeiro', 'farm': 'Módulo de Produção' };
                     document.getElementById('page-title').innerText = titles[state.currentRoute] || 'AgroGestão';
                 }
             },
@@ -281,14 +298,13 @@
                 }
             },
             renderDashboard: async (container) => {
-                const [vendas, contas, compras, func, cargas] = await Promise.all([
+                const [vendas, contas, compras, func] = await Promise.all([
                     db.get('vendas'), db.get('contas_pagar'), db.get('compras'),
-                    db.get('pagamento_func'), db.get('cargas')
+                    db.get('pagamento_func')
                 ]);
 
                 const totalVendas = vendas.reduce((acc, val) => acc + Number(val.valor), 0);
                 const totalDespesas = [...contas, ...compras, ...func].reduce((acc, item) => acc + Number(item.valor), 0);
-                const totalCocos = cargas.reduce((acc, val) => acc + Number(val.quantidade), 0);
 
                 container.innerHTML = `
                     ${ui.getNotificationBanner(contas, func)}
@@ -300,10 +316,6 @@
                         <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-red-500">
                             <p class="text-xs text-gray-500 mb-1">Total Saídas</p>
                             <p class="text-lg font-bold text-gray-800">${ui.formatCurrency(totalDespesas)}</p>
-                        </div>
-                        <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-amber-500 col-span-2">
-                            <p class="text-xs text-gray-500 mb-1">Total Produzido (Cocos)</p>
-                            <p class="text-2xl font-bold text-gray-800">${totalCocos} <span class="text-sm font-normal text-gray-500">unidades</span></p>
                         </div>
                     </div>
                     <h3 class="font-bold text-gray-700 mb-4">Acesso Rápido</h3>
@@ -335,12 +347,34 @@
                 data.sort((a, b) => new Date(b.data) - new Date(a.data));
                 const { today } = dateUtils.getLocalDateStrings();
 
-                if (data.length === 0) {
-                    container.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-gray-400 mt-20"><i class="fas fa-folder-open text-4xl mb-3"></i><p>Nenhum registro encontrado.</p></div>`;
+                let headerHTML = '';
+                let renderData = data;
+
+                if (module === 'cargas') {
+                    const currentMonth = state.cargasMonth || new Date().toISOString().slice(0, 7);
+                    renderData = data.filter(d => d.data && d.data.startsWith(currentMonth));
+                    const totalMes = renderData.reduce((acc, val) => acc + Number(val.quantidade), 0);
+
+                    headerHTML = `
+                        <div class="bg-white p-4 rounded-xl shadow-sm mb-4 border border-gray-100 flex items-center justify-between">
+                            <div>
+                                <p class="text-xs text-gray-500 mb-1">Mês de Referência</p>
+                                <input type="month" value="${currentMonth}" onchange="app.changeCargasMonth(event)" class="border border-gray-300 rounded p-1 text-sm outline-none">
+                            </div>
+                            <div class="text-right">
+                                <p class="text-xs text-gray-500 mb-1">Total do Mês</p>
+                                <p class="text-xl font-bold text-amber-600">${totalMes} <span class="text-xs font-normal">cocos</span></p>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                if (renderData.length === 0) {
+                    container.innerHTML = headerHTML + `<div class="flex flex-col items-center justify-center h-full text-gray-400 mt-10"><i class="fas fa-folder-open text-4xl mb-3"></i><p>Nenhum registro encontrado.</p></div>`;
                     return;
                 }
 
-                container.innerHTML = `<div class="space-y-3">` + data.map(item => {
+                const listHTML = `<div class="space-y-3">` + renderData.map(item => {
                     const temVencimento = module === 'contas_pagar' || module === 'pagamento_func';
                     const isVencidaOuHoje = temVencimento && item.data_vencimento && (item.data_vencimento <= today);
                     
@@ -349,18 +383,23 @@
 
                     return `
                         <div class="${cardStyle} p-4 rounded-xl shadow-sm border flex justify-between items-center transition-all">
-                            <div>
+                            <div class="flex-1 pr-2">
                                 <p class="text-[11px] text-gray-500 mb-1"><i class="far fa-calendar-alt mr-1"></i> Lançamento: ${ui.formatDate(item.data)}</p>
                                 <p class="font-bold ${textStyle} capitalize text-sm">${item.descricao}</p>
                                 ${item.data_vencimento ? `<p class="text-xs font-semibold mt-1 ${isVencidaOuHoje ? 'text-red-600 animate-pulse' : 'text-gray-600'}"><i class="fas fa-calendar-check mr-1"></i> Vencimento: ${ui.formatDate(item.data_vencimento)}</p>` : ''}
                                 ${item.quantidade ? `<p class="text-sm text-amber-600 font-semibold mt-1"><i class="fas fa-cubes mr-1"></i> ${item.quantidade} cocos</p>` : ''}
                             </div>
-                            <div class="flex flex-col items-end gap-2">
-                                ${item.valor ? `<span class="font-bold text-sm ${module === 'contas_pagar' || module === 'pagamento_func' ? 'text-red-600' : (module === 'vendas' ? 'text-green-600' : 'text-gray-700')}">${ui.formatCurrency(item.valor)}</span>` : ''}
-                                <button onclick="app.deleteRecord('${module}', '${item.id}')" class="text-gray-400 hover:text-red-500 p-2"><i class="fas fa-trash text-xs"></i></button>
+                            <div class="flex flex-col items-end gap-1 shrink-0">
+                                ${item.valor ? `<span class="font-bold text-sm mb-1 ${module === 'contas_pagar' || module === 'pagamento_func' ? 'text-red-600' : (module === 'vendas' ? 'text-green-600' : 'text-gray-700')}">${ui.formatCurrency(item.valor)}</span>` : ''}
+                                <div class="flex items-center gap-1">
+                                    ${module === 'contas_pagar' ? `<button onclick="app.payRecurringBill('${item.id}', '${item.data_vencimento}')" class="text-emerald-600 hover:bg-emerald-100 rounded-full w-8 h-8 flex items-center justify-center transition-colors" title="Marcar como Pago e Renovar"><i class="fas fa-check-circle text-lg"></i></button>` : ''}
+                                    <button onclick="app.deleteRecord('${module}', '${item.id}')" class="text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full w-8 h-8 flex items-center justify-center transition-colors"><i class="fas fa-trash text-sm"></i></button>
+                                </div>
                             </div>
                         </div>`;
                 }).join('') + `</div>`;
+
+                container.innerHTML = headerHTML + listHTML;
             },
             openModal: () => {
                 const mod = state.currentModule;
@@ -388,7 +427,26 @@
 
         const app = {
             goBack: () => router.navigate(config.modules[state.currentModule].type),
+            changeCargasMonth: async (e) => {
+                state.cargasMonth = e.target.value;
+                await ui.render();
+            },
+            payRecurringBill: async (id, currentDueDate) => {
+                if(confirm('Confirmar pagamento? O vencimento desta conta será renovado automaticamente para o próximo mês.')) {
+                    ui.showLoading();
+                    try {
+                        const date = new Date(currentDueDate + 'T12:00:00'); 
+                        date.setMonth(date.getMonth() + 1);
+                        const nextMonth = date.toISOString().split('T')[0];
+                        await db.update('contas_pagar', id, { data_vencimento: nextMonth });
+                    } catch (error) {
+                        console.error("Erro ao renovar conta:", error);
+                    }
+                    await ui.render();
+                }
+            },
             handleFormSubmit: async (e) => {
+                e.preventDefault();
                 document.getElementById('btn-submit').disabled = true;
                 try {
                     const data = Object.fromEntries(new FormData(e.target).entries());
@@ -410,6 +468,71 @@
             }
         };
 
+        // Sistema Customizado de Pull-to-Refresh
+        const pullToRefresh = {
+            startY: 0,
+            currentY: 0,
+            isAtTop: false,
+            isPulling: false,
+            threshold: 70, // Pixels para acionar atualização
+            init: () => {
+                const content = document.getElementById('app-content');
+                const indicator = document.getElementById('ptr-indicator');
+                const icon = document.getElementById('ptr-icon');
+
+                content.addEventListener('touchstart', (e) => {
+                    if (content.scrollTop <= 0) {
+                        pullToRefresh.startY = e.touches[0].clientY;
+                        pullToRefresh.isAtTop = true;
+                        indicator.style.transition = 'none';
+                    } else {
+                        pullToRefresh.isAtTop = false;
+                    }
+                }, { passive: true });
+
+                content.addEventListener('touchmove', (e) => {
+                    if (!pullToRefresh.isAtTop) return;
+                    pullToRefresh.currentY = e.touches[0].clientY;
+                    const dy = pullToRefresh.currentY - pullToRefresh.startY;
+
+                    // Apenas se estiver puxando para baixo e a rolagem no topo
+                    if (dy > 0 && content.scrollTop <= 0) {
+                        pullToRefresh.isPulling = true;
+                        const moveY = Math.min(dy * 0.4, pullToRefresh.threshold + 20); // Resistência visual
+                        indicator.style.transform = `translateY(${moveY}px)`;
+                        
+                        if (moveY >= pullToRefresh.threshold) {
+                            icon.className = 'fas fa-sync text-emerald-600 text-lg rotate-180 transition-transform';
+                        } else {
+                            icon.className = 'fas fa-arrow-down text-gray-400 text-lg transition-transform';
+                        }
+                    }
+                }, { passive: true });
+
+                content.addEventListener('touchend', async () => {
+                    if (pullToRefresh.isPulling) {
+                        pullToRefresh.isPulling = false;
+                        indicator.style.transition = 'transform 0.3s ease-out';
+                        
+                        const dy = pullToRefresh.currentY - pullToRefresh.startY;
+                        const moveY = dy * 0.4;
+
+                        if (moveY >= pullToRefresh.threshold) {
+                            // Prepara o ícone giratório e atualiza os dados
+                            icon.className = 'fas fa-circle-notch fa-spin text-emerald-600 text-lg';
+                            indicator.style.transform = `translateY(${pullToRefresh.threshold}px)`;
+                            await ui.render(); // Refaz a chamada no BD
+                        }
+                        
+                        // Retorna o indicador ao topo escondido
+                        indicator.style.transform = 'translateY(-150%)';
+                        setTimeout(() => { icon.className = 'fas fa-arrow-down text-gray-400 text-lg'; }, 300);
+                    }
+                    pullToRefresh.isAtTop = false;
+                });
+            }
+        };
+
         const router = {
             navigate: async (route, module = null) => {
                 state.currentRoute = route;
@@ -421,7 +544,11 @@
         window.router = router;
         window.ui = ui;
         window.app = app;
-        window.addEventListener('DOMContentLoaded', () => router.navigate('home'));
+        
+        window.addEventListener('DOMContentLoaded', () => {
+            router.navigate('home');
+            pullToRefresh.init(); // Inicializa o Pull-to-Refresh
+        });
     </script>
 </body>
 </html>
