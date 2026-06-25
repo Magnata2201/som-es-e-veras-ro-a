@@ -29,13 +29,13 @@
 <body class="bg-gray-50 text-gray-800 font-sans antialiased h-screen flex flex-col overflow-hidden">
 
     <div id="offline-banner" class="bg-red-500 text-white text-xs text-center py-1 font-bold z-50">
-        <i class="fas fa-wifi-slash mr-1"></i> Você está offline. O aplicativo está funcionando com dados salvos.
+        <i class="fas fa-wifi-slash mr-1"></i> Você está offline. O aplicativo está a funcionar com dados guardados.
     </div>
 
     <header class="bg-emerald-600 text-white shadow-md p-4 flex items-center justify-between z-20 shrink-0 relative">
         <div class="flex items-center gap-3">
             <button id="btn-back" class="hidden text-xl p-1" onclick="app.goBack()"><i class="fas fa-arrow-left"></i></button>
-            <h1 id="page-title" class="text-lg font-bold">Painel de Controle</h1>
+            <h1 id="page-title" class="text-lg font-bold">Painel de Controlo</h1>
         </div>
         <i class="fas fa-leaf text-xl"></i>
     </header>
@@ -46,8 +46,7 @@
         </div>
     </div>
 
-    <main id="app-content" class="flex-1 overflow-y-auto hide-scroll p-4 pb-24 relative z-10 overscroll-contain">
-    </main>
+    <main id="app-content" class="flex-1 overflow-y-auto hide-scroll p-4 pb-24 relative z-10 overscroll-contain"></main>
 
     <nav class="bg-white border-t border-gray-200 fixed bottom-0 w-full flex justify-around p-3 pb-safe z-30 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] shrink-0">
         <button onclick="router.navigate('home')" class="nav-btn flex flex-col items-center text-emerald-600 w-16" data-route="home">
@@ -71,13 +70,55 @@
     <div id="form-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
         <div class="bg-white w-full sm:w-96 rounded-t-2xl sm:rounded-xl p-6 modal-enter max-h-[90vh] overflow-y-auto">
             <div class="flex justify-between items-center mb-4">
-                <h2 id="modal-title" class="text-xl font-bold text-gray-800">Novo Registro</h2>
+                <h2 id="modal-title" class="text-xl font-bold text-gray-800">Novo Registo</h2>
                 <button onclick="ui.closeModal()" class="text-gray-500 text-2xl leading-none">&times;</button>
             </div>
             <form id="dynamic-form" onsubmit="app.handleFormSubmit(event)">
                 <div id="form-fields" class="space-y-4"></div>
                 <button type="submit" id="btn-submit" class="w-full bg-emerald-600 text-white font-bold py-3 rounded-lg mt-6 shadow-md active:bg-emerald-700 flex justify-center items-center gap-2">
-                    Salvar Dados
+                    Guardar Dados
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div id="partial-payment-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
+        <div class="bg-white w-full sm:w-96 rounded-t-2xl sm:rounded-xl p-6 modal-enter max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-gray-800">Baixa de Pagamento</h2>
+                <button onclick="ui.closePartialPaymentModal()" class="text-gray-500 text-2xl leading-none">&times;</button>
+            </div>
+            
+            <div id="partial-payment-desc" class="text-sm text-gray-700 mb-6 bg-emerald-50 p-4 rounded-xl border border-emerald-100 shadow-sm transition-colors duration-300">
+                </div>
+
+            <form id="form-partial-payment" onsubmit="app.submitPartialPayment(event)">
+                <input type="hidden" id="pay-module" name="module">
+                <input type="hidden" id="pay-id" name="id">
+                <input type="hidden" id="pay-original-valor" name="original_valor">
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Baixa</label>
+                    <select id="pay-type" name="pay_type" class="w-full border border-gray-300 rounded-lg p-3 text-gray-800 focus:ring-2 focus:ring-emerald-500 outline-none" onchange="ui.togglePartialFields()">
+                        <option value="total">Pagamento Total (Quitar)</option>
+                        <option value="parcial">Pagamento Parcial (Abater Valor)</option>
+                    </select>
+                </div>
+
+                <div id="partial-fields" class="hidden space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Valor Pago Agora (R$)</label>
+                        <input type="number" id="pay-amount" name="pay_amount" step="0.01" inputmode="decimal" class="w-full border border-gray-300 rounded-lg p-3 text-gray-800 focus:ring-2 focus:ring-emerald-500 outline-none" oninput="ui.calculateRemaining()" onkeyup="ui.calculateRemaining()">
+                    </div>
+
+                    <div id="pay-next-date-container">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Data da Próxima Parcela/Restante</label>
+                        <input type="date" id="pay-next-date" name="pay_next_date" class="w-full border border-gray-300 rounded-lg p-3 text-gray-800 focus:ring-2 focus:ring-emerald-500 outline-none">
+                    </div>
+                </div>
+
+                <button type="submit" id="btn-submit-payment" class="w-full bg-emerald-600 text-white font-bold py-3 rounded-lg mt-6 shadow-md active:bg-emerald-700 flex justify-center items-center gap-2">
+                    Confirmar Transação
                 </button>
             </form>
         </div>
@@ -111,6 +152,27 @@
 
         const appFirebase = initializeApp(firebaseConfig);
         const database = getDatabase(appFirebase);
+
+        const utils = {
+            parseMoney: (val) => {
+                if (val === null || val === undefined || val === '' || val === 'NaN') return 0;
+                if (typeof val === 'number') return isNaN(val) ? 0 : val;
+                
+                let s = val.toString().trim();
+                if (s === 'NaN') return 0;
+                
+                if (s.includes(',') && s.includes('.')) {
+                    s = s.replace(/\./g, '').replace(',', '.');
+                } else if (s.includes(',')) {
+                    s = s.replace(',', '.');
+                }
+                
+                s = s.replace(/[^0-9.-]/g, ''); 
+                
+                const n = parseFloat(s);
+                return isNaN(n) ? 0 : n;
+            }
+        };
 
         const db = {
             get: async (table) => {
@@ -180,12 +242,19 @@
                     { name: 'data', label: 'Data de Lançamento', type: 'date', required: true },
                     { name: 'descricao', label: module === 'pagamento_func' ? 'Nome do Funcionário' : 'Descrição/Observação', type: 'text', required: true }
                 ];
-                if (module === 'contas_pagar' || module === 'pagamento_func') {
-                    baseFields.push({ name: 'data_vencimento', label: 'Data de Vencimento', type: 'date', required: true });
+                
+                if (module === 'contas_pagar' || module === 'pagamento_func' || module === 'compras') {
+                    baseFields.push({ name: 'data_vencimento', label: module === 'compras' ? 'Data de Vencimento (1ª Parcela)' : 'Data de Vencimento', type: 'date', required: true });
                 }
+                
                 if (config.modules[module].type === 'finance') {
-                    baseFields.push({ name: 'valor', label: 'Valor (R$)', type: 'number', step: '0.01', required: true });
+                    baseFields.push({ name: 'valor', label: module === 'compras' ? 'Valor Total da Compra (R$)' : 'Valor (R$)', type: 'number', step: '0.01', required: true });
                 }
+                
+                if (module === 'compras') {
+                    baseFields.push({ name: 'parcelas', label: 'Quantidade de Parcelas (1 para pronto pagamento)', type: 'number', required: true, value: 1, min: 1 });
+                }
+
                 if (module === 'cargas') {
                     baseFields.push({ name: 'quantidade', label: 'Quantidade de Cocos', type: 'number', required: true });
                 }
@@ -200,7 +269,10 @@
         };
 
         const ui = {
-            formatCurrency: (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0),
+            formatCurrency: (value) => {
+                const n = utils.parseMoney(value);
+                return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
+            },
             formatDate: (dateString) => {
                 if (!dateString) return '';
                 const [y, m, d] = dateString.split('-');
@@ -210,7 +282,7 @@
                 document.getElementById('app-content').innerHTML = `
                     <div class="flex flex-col items-center justify-center h-full text-emerald-600 mt-20">
                         <div class="loader mb-4"></div>
-                        <p class="text-sm font-semibold">Carregando dados...</p>
+                        <p class="text-sm font-semibold">A carregar dados...</p>
                     </div>`;
             },
             getNotificationBanner: (contas, pagamentos) => {
@@ -236,7 +308,7 @@
                         <div class="bg-red-600 text-white p-4 rounded-xl mb-3 flex flex-col gap-2 shadow-md">
                             <div class="flex items-center gap-2">
                                 <i class="fas fa-exclamation-circle text-lg animate-pulse"></i>
-                                <p class="text-sm font-bold">Vencendo Hoje: ${totalHoje} compromisso(s)</p>
+                                <p class="text-sm font-bold">A vencer Hoje: ${totalHoje} compromisso(s)</p>
                             </div>
                             <ul class="text-xs opacity-90 pl-6 list-disc space-y-1 max-h-24 overflow-y-auto hide-scroll">
                                 ${itensHoje.map(item => `<li>${item}</li>`).join('')}
@@ -253,7 +325,7 @@
                         <div class="bg-amber-500 text-white p-4 rounded-xl mb-3 flex flex-col gap-2 shadow-md">
                             <div class="flex items-center gap-2">
                                 <i class="fas fa-clock text-lg"></i>
-                                <p class="text-sm font-bold">Vencendo Amanhã: ${totalAmanha} compromisso(s)</p>
+                                <p class="text-sm font-bold">A vencer Amanhã: ${totalAmanha} compromisso(s)</p>
                             </div>
                             <ul class="text-xs opacity-90 pl-6 list-disc space-y-1 max-h-24 overflow-y-auto hide-scroll">
                                 ${itensAmanha.map(item => `<li>${item}</li>`).join('')}
@@ -303,8 +375,8 @@
                     db.get('pagamento_func')
                 ]);
 
-                const totalVendas = vendas.reduce((acc, val) => acc + Number(val.valor), 0);
-                const totalDespesas = [...contas, ...compras, ...func].reduce((acc, item) => acc + Number(item.valor), 0);
+                const totalVendas = vendas.reduce((acc, val) => acc + utils.parseMoney(val.valor), 0);
+                const totalDespesas = [...contas, ...compras, ...func].reduce((acc, item) => acc + utils.parseMoney(item.valor), 0);
 
                 container.innerHTML = `
                     ${ui.getNotificationBanner(contas, func)}
@@ -353,7 +425,7 @@
                 if (module === 'cargas') {
                     const currentMonth = state.cargasMonth || new Date().toISOString().slice(0, 7);
                     renderData = data.filter(d => d.data && d.data.startsWith(currentMonth));
-                    const totalMes = renderData.reduce((acc, val) => acc + Number(val.quantidade), 0);
+                    const totalMes = renderData.reduce((acc, val) => acc + (parseFloat(val.quantidade) || 0), 0);
 
                     headerHTML = `
                         <div class="bg-white p-4 rounded-xl shadow-sm mb-4 border border-gray-100 flex items-center justify-between">
@@ -370,16 +442,23 @@
                 }
 
                 if (renderData.length === 0) {
-                    container.innerHTML = headerHTML + `<div class="flex flex-col items-center justify-center h-full text-gray-400 mt-10"><i class="fas fa-folder-open text-4xl mb-3"></i><p>Nenhum registro encontrado.</p></div>`;
+                    container.innerHTML = headerHTML + `<div class="flex flex-col items-center justify-center h-full text-gray-400 mt-10"><i class="fas fa-folder-open text-4xl mb-3"></i><p>Nenhum registo encontrado.</p></div>`;
                     return;
                 }
 
                 const listHTML = `<div class="space-y-3">` + renderData.map(item => {
-                    const temVencimento = module === 'contas_pagar' || module === 'pagamento_func';
+                    const temVencimento = module === 'contas_pagar' || module === 'pagamento_func' || module === 'compras';
                     const isVencidaOuHoje = temVencimento && item.data_vencimento && (item.data_vencimento <= today);
                     
                     const cardStyle = isVencidaOuHoje ? 'bg-red-50 border-red-300' : 'bg-white border-gray-100';
                     const textStyle = isVencidaOuHoje ? 'text-red-900' : 'text-gray-800';
+
+                    const encodedDesc = encodeURIComponent(item.descricao);
+                    const numValorSeguro = utils.parseMoney(item.valor);
+
+                    const valorHTML = item.valor !== undefined && numValorSeguro >= 0 
+                        ? `<span class="font-bold text-sm mb-1 ${temVencimento ? 'text-red-600' : (module === 'vendas' ? 'text-green-600' : 'text-gray-700')}">${ui.formatCurrency(numValorSeguro)}</span>` 
+                        : `<span class="font-bold text-sm mb-1 text-gray-400">R$ 0,00</span>`;
 
                     return `
                         <div class="${cardStyle} p-4 rounded-xl shadow-sm border flex justify-between items-center transition-all">
@@ -390,10 +469,17 @@
                                 ${item.quantidade ? `<p class="text-sm text-amber-600 font-semibold mt-1"><i class="fas fa-cubes mr-1"></i> ${item.quantidade} cocos</p>` : ''}
                             </div>
                             <div class="flex flex-col items-end gap-1 shrink-0">
-                                ${item.valor ? `<span class="font-bold text-sm mb-1 ${module === 'contas_pagar' || module === 'pagamento_func' ? 'text-red-600' : (module === 'vendas' ? 'text-green-600' : 'text-gray-700')}">${ui.formatCurrency(item.valor)}</span>` : ''}
+                                ${valorHTML}
                                 <div class="flex items-center gap-1">
-                                    ${module === 'contas_pagar' ? `<button onclick="app.payRecurringBill('${item.id}', '${item.data_vencimento}')" class="text-emerald-600 hover:bg-emerald-100 rounded-full w-8 h-8 flex items-center justify-center transition-colors" title="Marcar como Pago e Renovar"><i class="fas fa-check-circle text-lg"></i></button>` : ''}
-                                    <button onclick="app.deleteRecord('${module}', '${item.id}')" class="text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full w-8 h-8 flex items-center justify-center transition-colors"><i class="fas fa-trash text-sm"></i></button>
+                                    ${module === 'contas_pagar' ? `<button onclick="app.payRecurringBill('${item.id}', '${item.data_vencimento}')" class="text-blue-500 hover:bg-blue-100 rounded-full w-8 h-8 flex items-center justify-center transition-colors" title="Renovar para o próximo mês"><i class="fas fa-sync-alt text-sm"></i></button>` : ''}
+                                    
+                                    ${config.modules[module].type === 'finance' ? `
+                                        <button onclick="ui.openPartialPaymentModal('${module}', '${item.id}', '${encodedDesc}', '${numValorSeguro}')" class="text-emerald-600 hover:bg-emerald-100 rounded-full w-8 h-8 flex items-center justify-center transition-colors shadow-sm bg-white border border-emerald-100" title="Dar Baixa/Pagar">
+                                            <i class="fas fa-check"></i>
+                                        </button>
+                                    ` : ''}
+
+                                    <button onclick="app.deleteRecord('${module}', '${item.id}')" class="text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full w-8 h-8 flex items-center justify-center transition-colors" title="Eliminar"><i class="fas fa-trash text-sm"></i></button>
                                 </div>
                             </div>
                         </div>`;
@@ -408,7 +494,7 @@
                 const formHTML = config.getFields(mod).map(f => `
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">${f.label}</label>
-                        <input type="${f.type}" name="${f.name}" ${f.required ? 'required' : ''} ${f.step ? `step="${f.step}"` : ''}
+                        <input type="${f.type}" name="${f.name}" ${f.required ? 'required' : ''} ${f.step ? `step="${f.step}"` : ''} ${f.type === 'number' && f.step ? 'inputmode="decimal"' : ''} ${f.value ? `value="${f.value}"` : ''} ${f.min ? `min="${f.min}"` : ''}
                             class="w-full border border-gray-300 rounded-lg p-3 text-gray-800 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all">
                     </div>
                 `).join('');
@@ -422,6 +508,81 @@
             closeModal: () => {
                 document.getElementById('form-modal').classList.add('hidden');
                 document.getElementById('dynamic-form').reset();
+            },
+            openPartialPaymentModal: (module, id, encodedDesc, valor) => {
+                const descricao = decodeURIComponent(encodedDesc);
+                const numValor = utils.parseMoney(valor);
+                
+                document.getElementById('partial-payment-desc').innerHTML = `
+                    <div class="flex justify-between items-center w-full">
+                        <span class="font-bold text-gray-800 truncate pr-2 flex-1">${descricao}</span>
+                        <div class="text-right shrink-0">
+                            <span class="block text-[10px] text-gray-500 uppercase font-semibold tracking-wider mb-0.5">Valor Restante</span>
+                            <span id="top-display-value" class="text-emerald-600 font-bold text-lg transition-all">${ui.formatCurrency(numValor)}</span>
+                        </div>
+                    </div>
+                `;
+
+                document.getElementById('pay-module').value = module;
+                document.getElementById('pay-id').value = id;
+                document.getElementById('pay-original-valor').value = numValor;
+
+                document.getElementById('pay-type').value = 'total';
+                document.getElementById('pay-amount').value = '';
+                document.getElementById('pay-next-date').value = '';
+                
+                ui.togglePartialFields();
+                document.getElementById('partial-payment-modal').classList.remove('hidden');
+            },
+            closePartialPaymentModal: () => {
+                document.getElementById('partial-payment-modal').classList.add('hidden');
+                document.getElementById('form-partial-payment').reset();
+            },
+            calculateRemaining: () => {
+                const originalValor = utils.parseMoney(document.getElementById('pay-original-valor').value);
+                const payAmount = utils.parseMoney(document.getElementById('pay-amount').value);
+                const displayValue = document.getElementById('top-display-value');
+                const dateInputContainer = document.getElementById('pay-next-date-container');
+
+                let remaining = originalValor - payAmount;
+                
+                if (remaining <= 0 && payAmount > 0) {
+                    displayValue.innerText = "Sairá do Sistema";
+                    displayValue.className = "text-blue-600 font-bold text-lg transition-all";
+                    dateInputContainer.classList.add('hidden');
+                    document.getElementById('pay-next-date').required = false;
+                } else {
+                    displayValue.innerText = ui.formatCurrency(remaining);
+                    displayValue.className = "text-emerald-600 font-bold text-lg transition-all";
+                    dateInputContainer.classList.remove('hidden');
+                    document.getElementById('pay-next-date').required = true;
+                }
+            },
+            togglePartialFields: () => {
+                const type = document.getElementById('pay-type').value;
+                const fields = document.getElementById('partial-fields');
+                const amountInput = document.getElementById('pay-amount');
+                const dateInput = document.getElementById('pay-next-date');
+                const dateInputContainer = document.getElementById('pay-next-date-container');
+
+                if (type === 'parcial') {
+                    fields.classList.remove('hidden');
+                    amountInput.required = true;
+                    dateInput.required = true;
+                    dateInputContainer.classList.remove('hidden');
+                    ui.calculateRemaining();
+                } else {
+                    fields.classList.add('hidden');
+                    amountInput.required = false;
+                    dateInput.required = false;
+                    
+                    const originalValor = utils.parseMoney(document.getElementById('pay-original-valor').value);
+                    const displayValue = document.getElementById('top-display-value');
+                    if(displayValue) {
+                        displayValue.innerText = ui.formatCurrency(originalValor);
+                        displayValue.className = "text-emerald-600 font-bold text-lg transition-all";
+                    }
+                }
             }
         };
 
@@ -432,7 +593,7 @@
                 await ui.render();
             },
             payRecurringBill: async (id, currentDueDate) => {
-                if(confirm('Confirmar pagamento? O vencimento desta conta será renovado automaticamente para o próximo mês.')) {
+                if(confirm('Confirmar renovação? O vencimento desta conta será prorrogado automaticamente para o próximo mês.')) {
                     ui.showLoading();
                     try {
                         const date = new Date(currentDueDate + 'T12:00:00'); 
@@ -445,22 +606,106 @@
                     await ui.render();
                 }
             },
+            submitPartialPayment: async (e) => {
+                e.preventDefault();
+                const btn = document.getElementById('btn-submit-payment');
+                btn.disabled = true;
+
+                try {
+                    // 1. CAPTURAR OS DADOS ANTES DE FECHAR O MODAL
+                    const module = document.getElementById('pay-module').value;
+                    const id = document.getElementById('pay-id').value;
+                    const originalValor = utils.parseMoney(document.getElementById('pay-original-valor').value);
+                    const type = document.getElementById('pay-type').value;
+                    
+                    const payAmount = utils.parseMoney(document.getElementById('pay-amount').value);
+                    const nextDate = document.getElementById('pay-next-date').value;
+
+                    // 2. VALIDAR
+                    if (type === 'parcial') {
+                        if (payAmount <= 0) {
+                            alert("Por favor, digite um valor válido para abater.");
+                            btn.disabled = false;
+                            return;
+                        }
+                    }
+
+                    // 3. FECHAR O MODAL E LIMPAR O FORMULÁRIO
+                    ui.closePartialPaymentModal();
+                    ui.showLoading();
+
+                    // 4. ATUALIZAR O BANCO DE DADOS
+                    if (type === 'total') {
+                        await db.delete(module, id);
+                    } else {
+                        const newValor = originalValor - payAmount;
+                        
+                        if (newValor <= 0 || isNaN(newValor)) {
+                            // Se a dívida zerou, apaga a conta do banco
+                            await db.delete(module, id);
+                        } else {
+                            // Atualiza a dívida com o valor restante
+                            await db.update(module, id, {
+                                valor: newValor.toFixed(2),
+                                data_vencimento: nextDate
+                            });
+                        }
+                    }
+                } catch (error) {
+                    console.error("Erro na transação:", error);
+                    alert("Erro ao processar a baixa no sistema.");
+                } finally {
+                    btn.disabled = false;
+                    await ui.render(); // Recarrega os dados com os valores atualizados
+                }
+            },
             handleFormSubmit: async (e) => {
                 e.preventDefault();
                 document.getElementById('btn-submit').disabled = true;
                 try {
                     const data = Object.fromEntries(new FormData(e.target).entries());
-                    await db.insert(state.currentModule, data);
+
+                    if (state.currentModule === 'compras') {
+                        const parcelas = parseInt(data.parcelas) || 1;
+                        const valorTotal = utils.parseMoney(data.valor);
+
+                        if (parcelas > 1) {
+                            const valorBase = Math.floor((valorTotal / parcelas) * 100) / 100;
+                            const diferenca = valorTotal - (valorBase * parcelas);
+                            let dataVencimentoBase = new Date(data.data_vencimento + 'T12:00:00');
+
+                            for (let i = 1; i <= parcelas; i++) {
+                                const record = { ...data };
+                                const valorParcela = i === 1 ? (valorBase + diferenca) : valorBase;
+                                record.valor = valorParcela.toFixed(2);
+                                record.descricao = `${data.descricao} (Parc. ${i}/${parcelas})`;
+                                
+                                const dt = new Date(dataVencimentoBase.getTime());
+                                dt.setMonth(dt.getMonth() + (i - 1));
+                                record.data_vencimento = dt.toISOString().split('T')[0];
+                                
+                                delete record.parcelas;
+                                await db.insert(state.currentModule, record);
+                            }
+                        } else {
+                            delete data.parcelas;
+                            data.valor = utils.parseMoney(data.valor).toFixed(2);
+                            await db.insert(state.currentModule, data);
+                        }
+                    } else {
+                        if (data.valor) data.valor = utils.parseMoney(data.valor).toFixed(2);
+                        await db.insert(state.currentModule, data);
+                    }
                     ui.closeModal();
                 } catch (error) {
-                    console.error(error);
+                    console.error("Erro ao guardar form:", error);
                 } finally {
                     document.getElementById('btn-submit').disabled = false;
                     await ui.render();
                 }
             },
             deleteRecord: async (module, id) => {
-                if(confirm('Tem certeza que deseja apagar este registro do Firebase?')) {
+                if(confirm('Tem a certeza de que deseja eliminar este registo do Firebase?')) {
                     ui.showLoading();
                     await db.delete(module, id);
                     await ui.render();
@@ -468,13 +713,12 @@
             }
         };
 
-        // Sistema Customizado de Pull-to-Refresh
         const pullToRefresh = {
             startY: 0,
             currentY: 0,
             isAtTop: false,
             isPulling: false,
-            threshold: 70, // Pixels para acionar atualização
+            threshold: 70,
             init: () => {
                 const content = document.getElementById('app-content');
                 const indicator = document.getElementById('ptr-indicator');
@@ -495,10 +739,9 @@
                     pullToRefresh.currentY = e.touches[0].clientY;
                     const dy = pullToRefresh.currentY - pullToRefresh.startY;
 
-                    // Apenas se estiver puxando para baixo e a rolagem no topo
                     if (dy > 0 && content.scrollTop <= 0) {
                         pullToRefresh.isPulling = true;
-                        const moveY = Math.min(dy * 0.4, pullToRefresh.threshold + 20); // Resistência visual
+                        const moveY = Math.min(dy * 0.4, pullToRefresh.threshold + 20);
                         indicator.style.transform = `translateY(${moveY}px)`;
                         
                         if (moveY >= pullToRefresh.threshold) {
@@ -518,13 +761,11 @@
                         const moveY = dy * 0.4;
 
                         if (moveY >= pullToRefresh.threshold) {
-                            // Prepara o ícone giratório e atualiza os dados
                             icon.className = 'fas fa-circle-notch fa-spin text-emerald-600 text-lg';
                             indicator.style.transform = `translateY(${pullToRefresh.threshold}px)`;
-                            await ui.render(); // Refaz a chamada no BD
+                            await ui.render();
                         }
                         
-                        // Retorna o indicador ao topo escondido
                         indicator.style.transform = 'translateY(-150%)';
                         setTimeout(() => { icon.className = 'fas fa-arrow-down text-gray-400 text-lg'; }, 300);
                     }
@@ -547,7 +788,7 @@
         
         window.addEventListener('DOMContentLoaded', () => {
             router.navigate('home');
-            pullToRefresh.init(); // Inicializa o Pull-to-Refresh
+            pullToRefresh.init();
         });
     </script>
 </body>
