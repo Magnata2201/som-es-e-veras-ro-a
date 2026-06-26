@@ -175,6 +175,22 @@
             }
         };
 
+        const dateUtils = {
+            getLocalDateStrings: () => {
+                const now = new Date();
+                const offset = now.getTimezoneOffset() * 60000;
+                const today = new Date(now.getTime() - offset).toISOString().split('T')[0];
+                const tomorrowObj = new Date(now.getTime() - offset + (24 * 60 * 60 * 1000));
+                const tomorrow = tomorrowObj.toISOString().split('T')[0];
+                return { today, tomorrow };
+            },
+            getLocalMonthString: () => {
+                const now = new Date();
+                const offset = now.getTimezoneOffset() * 60000;
+                return new Date(now.getTime() - offset).toISOString().slice(0, 7);
+            }
+        };
+
         const db = {
             get: async (table) => {
                 if (!navigator.onLine) {
@@ -218,17 +234,6 @@
             }
         };
 
-        const dateUtils = {
-            getLocalDateStrings: () => {
-                const now = new Date();
-                const offset = now.getTimezoneOffset() * 60000;
-                const today = new Date(now.getTime() - offset).toISOString().split('T')[0];
-                const tomorrowObj = new Date(now.getTime() - offset + (24 * 60 * 60 * 1000));
-                const tomorrow = tomorrowObj.toISOString().split('T')[0];
-                return { today, tomorrow };
-            }
-        };
-
         const config = {
             modules: {
                 'contas_pagar': { title: 'Contas a Pagar', icon: 'fa-file-invoice-dollar', color: 'text-red-500', type: 'finance' },
@@ -266,7 +271,8 @@
         const state = { 
             currentRoute: 'home', 
             currentModule: null,
-            cargasMonth: new Date().toISOString().slice(0, 7)
+            cargasMonth: dateUtils.getLocalMonthString(),
+            dashboardMonth: dateUtils.getLocalMonthString()
         };
 
         const ui = {
@@ -286,23 +292,27 @@
                         <p class="text-sm font-semibold">A carregar dados...</p>
                     </div>`;
             },
-            getNotificationBanner: (contas, pagamentos) => {
+            getNotificationBanner: (contas, compras, pagamentos) => {
                 const { today, tomorrow } = dateUtils.getLocalDateStrings();
                 
                 const contasHoje = contas.filter(c => c.data_vencimento === today && c.status !== 'pago');
                 const contasAmanha = contas.filter(c => c.data_vencimento === tomorrow && c.status !== 'pago');
+
+                const comprasHoje = compras.filter(c => c.data_vencimento === today && c.status !== 'pago');
+                const comprasAmanha = compras.filter(c => c.data_vencimento === tomorrow && c.status !== 'pago');
                 
                 const funcHoje = pagamentos.filter(p => p.data_vencimento === today && p.status !== 'pago');
                 const funcAmanha = pagamentos.filter(p => p.data_vencimento === tomorrow && p.status !== 'pago');
 
-                const totalHoje = contasHoje.length + funcHoje.length;
-                const totalAmanha = contasAmanha.length + funcAmanha.length;
+                const totalHoje = contasHoje.length + comprasHoje.length + funcHoje.length;
+                const totalAmanha = contasAmanha.length + comprasAmanha.length + funcAmanha.length;
 
                 let htmlBanner = '';
 
                 if (totalHoje > 0) {
                     const itensHoje = [
                         ...contasHoje.map(c => `<span class="font-bold">[Conta]</span> ${c.descricao} (${ui.formatCurrency(c.valor)})`), 
+                        ...comprasHoje.map(c => `<span class="font-bold">[Compra]</span> ${c.descricao} (${ui.formatCurrency(c.valor)})`), 
                         ...funcHoje.map(p => `<span class="font-bold">[Func]</span> ${p.descricao} (${ui.formatCurrency(p.valor)})`)
                     ];
                     htmlBanner += `
@@ -320,6 +330,7 @@
                 if (totalAmanha > 0) {
                     const itensAmanha = [
                         ...contasAmanha.map(c => `<span class="font-bold">[Conta]</span> ${c.descricao} (${ui.formatCurrency(c.valor)})`), 
+                        ...comprasAmanha.map(c => `<span class="font-bold">[Compra]</span> ${c.descricao} (${ui.formatCurrency(c.valor)})`), 
                         ...funcAmanha.map(p => `<span class="font-bold">[Func]</span> ${p.descricao} (${ui.formatCurrency(p.valor)})`)
                     ];
                     htmlBanner += `
@@ -376,21 +387,56 @@
                     db.get('pagamento_func')
                 ]);
 
-                const totalVendas = vendas.reduce((acc, val) => acc + utils.parseMoney(val.valor), 0);
-                // O dashboard usa o valor estático, garantindo a previsão real do negócio (soma as contas completas)
-                const totalDespesas = [...contas, ...compras, ...func].reduce((acc, item) => acc + utils.parseMoney(item.valor), 0);
+                const notificationBanner = ui.getNotificationBanner(contas, compras, func);
+
+                const currentMonth = state.dashboardMonth;
+
+                const vendasMes = vendas.filter(v => v.data && v.data.startsWith(currentMonth));
+                const totalVendas = vendasMes.reduce((acc, val) => acc + utils.parseMoney(val.valor), 0);
+                
+                const filterExpense = (item) => {
+                    const dateToUse = item.data_vencimento || item.data;
+                    return dateToUse && dateToUse.startsWith(currentMonth);
+                };
+
+                const contasMes = contas.filter(filterExpense);
+                const comprasMes = compras.filter(filterExpense);
+                const funcMes = func.filter(filterExpense);
+
+                let totalDespesasPagas = 0;
+                let totalDespesasPendentes = 0;
+
+                [...contasMes, ...comprasMes, ...funcMes].forEach(item => {
+                    const numValorOriginal = utils.parseMoney(item.valor);
+                    const numValorPago = utils.parseMoney(item.valor_pago || 0);
+                    
+                    totalDespesasPagas += numValorPago;
+                    totalDespesasPendentes += (numValorOriginal - numValorPago);
+                });
 
                 container.innerHTML = `
-                    ${ui.getNotificationBanner(contas, func)}
-                    <div class="grid grid-cols-2 gap-4 mb-6">
+                    ${notificationBanner}
+                    
+                    <div class="bg-white p-4 rounded-xl shadow-sm mb-4 border border-gray-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-xs text-gray-500 mb-1">Mês de Referência do Resumo</p>
+                            <input type="month" value="${currentMonth}" onchange="app.changeDashboardMonth(event)" class="border border-gray-300 rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 mb-3">
                         <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-green-500">
                             <p class="text-xs text-gray-500 mb-1">Total de Vendas</p>
                             <p class="text-lg font-bold text-gray-800">${ui.formatCurrency(totalVendas)}</p>
                         </div>
-                        <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-red-500">
-                            <p class="text-xs text-gray-500 mb-1">Total Saídas</p>
-                            <p class="text-lg font-bold text-gray-800">${ui.formatCurrency(totalDespesas)}</p>
+                        <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-blue-500">
+                            <p class="text-xs text-gray-500 mb-1">Saídas Pagas</p>
+                            <p class="text-lg font-bold text-gray-800">${ui.formatCurrency(totalDespesasPagas)}</p>
                         </div>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-red-500 mb-6">
+                        <p class="text-xs text-gray-500 mb-1">Total Pendente (A Pagar)</p>
+                        <p class="text-xl font-bold text-red-600">${ui.formatCurrency(totalDespesasPendentes)}</p>
                     </div>
                     <h3 class="font-bold text-gray-700 mb-4">Acesso Rápido</h3>
                     <div class="grid grid-cols-2 gap-3">
@@ -425,7 +471,7 @@
                 let renderData = data;
 
                 if (module === 'cargas') {
-                    const currentMonth = state.cargasMonth || new Date().toISOString().slice(0, 7);
+                    const currentMonth = state.cargasMonth;
                     renderData = data.filter(d => d.data && d.data.startsWith(currentMonth));
                     const totalMes = renderData.reduce((acc, val) => acc + (parseFloat(val.quantidade) || 0), 0);
 
@@ -451,7 +497,6 @@
                 const listHTML = `<div class="space-y-3">` + renderData.map(item => {
                     const temVencimento = module === 'contas_pagar' || module === 'pagamento_func' || module === 'compras';
                     
-                    // LÓGICA DE CONTABILIDADE 
                     const numValorOriginal = utils.parseMoney(item.valor);
                     const numValorPago = utils.parseMoney(item.valor_pago || 0);
                     const numValorPendente = numValorOriginal - numValorPago;
@@ -464,10 +509,8 @@
 
                     const encodedDesc = encodeURIComponent(item.descricao);
                     
-                    // Se estiver pago, exibe o valor completo. Se estiver devendo, exibe só o que falta (Pendente)
                     const exibirValor = isPago ? numValorOriginal : numValorPendente;
 
-                    // O bloco de Valor HTML exibe um aviso se houver pagamento parcial ativo
                     const valorHTML = item.valor !== undefined && numValorOriginal >= 0 
                         ? `<div class="flex flex-col items-end">
                              ${numValorPago > 0 && !isPago ? `<span class="text-[10px] text-emerald-600 font-bold leading-tight mb-0.5"><i class="fas fa-check-double mr-1"></i>Pago: ${ui.formatCurrency(numValorPago)}</span>` : ''}
@@ -600,7 +643,6 @@
                     amountInput.required = false;
                     dateInput.required = false;
                     
-                    // Restaura o display pro valor atual pendente
                     const valorOriginal = utils.parseMoney(document.getElementById('pay-original-valor').value);
                     const valorPago = utils.parseMoney(document.getElementById('pay-valor-pago').value);
                     const pendente = valorOriginal - valorPago;
@@ -618,6 +660,10 @@
             goBack: () => router.navigate(config.modules[state.currentModule].type),
             changeCargasMonth: async (e) => {
                 state.cargasMonth = e.target.value;
+                await ui.render();
+            },
+            changeDashboardMonth: async (e) => {
+                state.dashboardMonth = e.target.value;
                 await ui.render();
             },
             payRecurringBill: async (id, currentDueDate) => {
@@ -661,7 +707,6 @@
                     ui.showLoading();
 
                     if (type === 'total') {
-                        // Clicou em Quitar direto, salva o valor pago igual ao total e altera status
                         await db.update(module, id, { 
                             status: 'pago', 
                             valor_pago: valorOriginal.toFixed(2)
@@ -670,13 +715,11 @@
                         const novoValorPago = valorPagoAtual + payAmount;
                         
                         if (novoValorPago >= valorOriginal) {
-                            // Se bater escrevendo um valor igual ou maior que a dívida
                             await db.update(module, id, { 
                                 status: 'pago', 
                                 valor_pago: valorOriginal.toFixed(2) 
                             });
                         } else {
-                            // Atualiza somente a nova "fatia" que foi paga
                             await db.update(module, id, {
                                 valor_pago: novoValorPago.toFixed(2),
                                 data_vencimento: nextDate
@@ -697,7 +740,7 @@
                 try {
                     const data = Object.fromEntries(new FormData(e.target).entries());
                     data.status = 'pendente'; 
-                    data.valor_pago = 0; // Inicia a conta nova sem nenhum pagamento
+                    data.valor_pago = 0; 
 
                     if (state.currentModule === 'compras') {
                         const parcelas = parseInt(data.parcelas) || 1;
