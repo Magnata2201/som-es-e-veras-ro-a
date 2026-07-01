@@ -188,8 +188,21 @@
                 const now = new Date();
                 const offset = now.getTimezoneOffset() * 60000;
                 return new Date(now.getTime() - offset).toISOString().slice(0, 7);
+            },
+            getFirstAndLastDayMonth: () => {
+                const now = new Date();
+                const y = now.getFullYear();
+                const m = now.getMonth();
+                const pad = (n) => n.toString().padStart(2, '0');
+                const lastDay = new Date(y, m + 1, 0).getDate();
+                return { 
+                    firstDay: `${y}-${pad(m+1)}-01`, 
+                    lastDay: `${y}-${pad(m+1)}-${pad(lastDay)}` 
+                };
             }
         };
+
+        const defaultDates = dateUtils.getFirstAndLastDayMonth();
 
         const db = {
             get: async (table) => {
@@ -272,7 +285,9 @@
             currentRoute: 'home', 
             currentModule: null,
             cargasMonth: dateUtils.getLocalMonthString(),
-            dashboardMonth: dateUtils.getLocalMonthString()
+            dashboardMonth: dateUtils.getLocalMonthString(),
+            vendasStartDate: defaultDates.firstDay,
+            vendasEndDate: defaultDates.lastDay
         };
 
         const ui = {
@@ -392,7 +407,7 @@
                 const currentMonth = state.dashboardMonth;
 
                 const vendasMes = vendas.filter(v => v.data && v.data.startsWith(currentMonth));
-                const totalVendas = vendasMes.reduce((acc, val) => acc + utils.parseMoney(val.valor), 0);
+                const totalVendasBrutas = vendasMes.reduce((acc, val) => acc + utils.parseMoney(val.valor), 0);
                 
                 const filterExpense = (item) => {
                     const dateToUse = item.data_vencimento || item.data;
@@ -414,6 +429,8 @@
                     totalDespesasPendentes += (numValorOriginal - numValorPago);
                 });
 
+                const saldoLiquido = totalVendasBrutas - totalDespesasPagas;
+
                 container.innerHTML = `
                     ${notificationBanner}
                     
@@ -426,18 +443,25 @@
 
                     <div class="grid grid-cols-2 gap-4 mb-3">
                         <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-green-500">
-                            <p class="text-xs text-gray-500 mb-1">Total de Vendas</p>
-                            <p class="text-lg font-bold text-gray-800">${ui.formatCurrency(totalVendas)}</p>
+                            <p class="text-[10px] text-gray-500 font-bold uppercase mb-1">Total de Vendas</p>
+                            <p class="text-lg font-bold text-gray-800">${ui.formatCurrency(totalVendasBrutas)}</p>
                         </div>
                         <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-blue-500">
-                            <p class="text-xs text-gray-500 mb-1">Saídas Pagas</p>
+                            <p class="text-[10px] text-gray-500 font-bold uppercase mb-1">Saídas Pagas</p>
                             <p class="text-lg font-bold text-gray-800">${ui.formatCurrency(totalDespesasPagas)}</p>
                         </div>
                     </div>
-                    <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-red-500 mb-6">
-                        <p class="text-xs text-gray-500 mb-1">Total Pendente (A Pagar)</p>
-                        <p class="text-xl font-bold text-red-600">${ui.formatCurrency(totalDespesasPendentes)}</p>
+                    
+                    <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 ${saldoLiquido >= 0 ? 'border-emerald-500' : 'border-red-500'} mb-3">
+                        <p class="text-[10px] text-gray-500 font-bold uppercase mb-1">Saldo Líquido Atual (Vendas - Pagos)</p>
+                        <p class="text-xl font-bold ${saldoLiquido >= 0 ? 'text-emerald-600' : 'text-red-600'}">${ui.formatCurrency(saldoLiquido)}</p>
                     </div>
+
+                    <div class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-orange-500 mb-6">
+                        <p class="text-[10px] text-gray-500 font-bold uppercase mb-1">Total Pendente (A Pagar)</p>
+                        <p class="text-xl font-bold text-orange-600">${ui.formatCurrency(totalDespesasPendentes)}</p>
+                    </div>
+
                     <h3 class="font-bold text-gray-700 mb-4">Acesso Rápido</h3>
                     <div class="grid grid-cols-2 gap-3">
                         ${Object.entries(config.modules).map(([key, mod]) => `
@@ -487,10 +511,34 @@
                             </div>
                         </div>
                     `;
+                } else if (module === 'vendas') {
+                    const start = state.vendasStartDate;
+                    const end = state.vendasEndDate;
+                    renderData = data.filter(d => d.data && d.data >= start && d.data <= end);
+                    const totalVendasPeriodo = renderData.reduce((acc, val) => acc + utils.parseMoney(val.valor), 0);
+
+                    headerHTML = `
+                        <div class="bg-white p-4 rounded-xl shadow-sm mb-4 border border-gray-100 flex flex-col gap-3">
+                            <div class="flex justify-between items-end gap-2">
+                                <div class="flex-1">
+                                    <label class="text-[10px] text-gray-500 font-bold uppercase mb-1 block">Início</label>
+                                    <input type="date" value="${start}" onchange="app.changeVendasStart(event)" class="w-full border border-gray-300 rounded p-2 text-sm outline-none focus:ring-1 focus:ring-emerald-500">
+                                </div>
+                                <div class="flex-1">
+                                    <label class="text-[10px] text-gray-500 font-bold uppercase mb-1 block">Fim</label>
+                                    <input type="date" value="${end}" onchange="app.changeVendasEnd(event)" class="w-full border border-gray-300 rounded p-2 text-sm outline-none focus:ring-1 focus:ring-emerald-500">
+                                </div>
+                            </div>
+                            <div class="bg-emerald-50 p-3 rounded-lg flex justify-between items-center border border-emerald-100">
+                                <span class="text-xs font-bold text-emerald-800">Total Vendido no Período:</span>
+                                <span class="text-lg font-bold text-emerald-700">${ui.formatCurrency(totalVendasPeriodo)}</span>
+                            </div>
+                        </div>
+                    `;
                 }
 
                 if (renderData.length === 0) {
-                    container.innerHTML = headerHTML + `<div class="flex flex-col items-center justify-center h-full text-gray-400 mt-10"><i class="fas fa-folder-open text-4xl mb-3"></i><p>Nenhum registo encontrado.</p></div>`;
+                    container.innerHTML = headerHTML + `<div class="flex flex-col items-center justify-center h-full text-gray-400 mt-10"><i class="fas fa-folder-open text-4xl mb-3"></i><p>Nenhum registo encontrado no período.</p></div>`;
                     return;
                 }
 
@@ -534,7 +582,7 @@
                                 <div class="flex items-center gap-1">
                                     ${module === 'contas_pagar' && !isPago ? `<button onclick="app.payRecurringBill('${item.id}', '${item.data_vencimento}')" class="text-blue-500 hover:bg-blue-100 rounded-full w-8 h-8 flex items-center justify-center transition-colors" title="Renovar para o próximo mês"><i class="fas fa-sync-alt text-sm"></i></button>` : ''}
                                     
-                                    ${config.modules[module].type === 'finance' && !isPago ? `
+                                    ${config.modules[module].type === 'finance' && module !== 'vendas' && !isPago ? `
                                         <button onclick="ui.openPartialPaymentModal('${module}', '${item.id}', '${encodedDesc}', '${numValorOriginal}', '${numValorPago}')" class="text-emerald-600 hover:bg-emerald-100 rounded-full w-8 h-8 flex items-center justify-center transition-colors shadow-sm bg-white border border-emerald-100" title="Dar Baixa/Pagar">
                                             <i class="fas fa-check"></i>
                                         </button>
@@ -664,6 +712,14 @@
             },
             changeDashboardMonth: async (e) => {
                 state.dashboardMonth = e.target.value;
+                await ui.render();
+            },
+            changeVendasStart: async (e) => {
+                state.vendasStartDate = e.target.value;
+                await ui.render();
+            },
+            changeVendasEnd: async (e) => {
+                state.vendasEndDate = e.target.value;
                 await ui.render();
             },
             payRecurringBill: async (id, currentDueDate) => {
